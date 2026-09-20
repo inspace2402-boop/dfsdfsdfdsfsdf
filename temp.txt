@@ -1,0 +1,101 @@
+        const globeCenterX = dimensions.width / 2;
+        const globeCenterY = dimensions.height / 2;
+
+        const pathGenerator = d3.geoPath(projection, offscreenCtx);
+
+        // Fast O(1) projected bounding box retriever with automatic caching to guarantee buttery-smooth 60fps panning & zooming
+        const getOrCreateGeomProjectedBounds = (geom: any): [[number, number], [number, number]] | null => {
+          let cached = geomProjectedBoundsCacheRef.current.get(geom);
+          if (cached) return cached;
+
+          try {
+            const bounds = pathGenerator.bounds(geom);
+            if (bounds && isFinite(bounds[0][0]) && isFinite(bounds[0][1]) && isFinite(bounds[1][0]) && isFinite(bounds[1][1])) {
+              geomProjectedBoundsCacheRef.current.set(geom, bounds);
+              return bounds;
+            }
+          } catch (e) {}
+          return null;
+        };
+
+        // 1. If orthographic, draw beautiful solid ocean background globe disc using oceanColor
+        if (isOrthographicProj) {
+          offscreenCtx.beginPath();
+          offscreenCtx.arc(globeCenterX, globeCenterY, globeRadius, 0, Math.PI * 2);
+          offscreenCtx.fillStyle = oceanColor;
+          offscreenCtx.fill();
+        } else if (!isNoGeoref) {
+          // For flat maps, fill the sphere boundary with oceanColor
+          try {
+            offscreenCtx.beginPath();
+            pathGenerator({ type: 'Sphere' });
+            offscreenCtx.fillStyle = oceanColor;
+            offscreenCtx.fill();
+          } catch (e) {}
+        }
+
+        let hasSphereClip = false;
+        if (isOrthographicProj) {
+          offscreenCtx.save();
+          offscreenCtx.beginPath();
+          offscreenCtx.arc(globeCenterX, globeCenterY, globeRadius + 0.5, 0, Math.PI * 2);
+          offscreenCtx.clip();
+          hasSphereClip = true;
+        } else if (!isNoGeoref) {
+          try {
+            offscreenCtx.save();
+            offscreenCtx.beginPath();
+            pathGenerator({ type: 'Sphere' });
+            offscreenCtx.clip();
+            hasSphereClip = true;
+          } catch (e) {}
+        }
+
+        // Resolve the raw background pixel data using the lightweight descriptor
+        let decodedBgImage: { width: number; height: number; data: Uint8ClampedArray | null } | null = null;
+        if (decodedBgDescriptor && !isNoGeoref) {
+          const rawBgData = globalDecodedBgRegistry.get(decodedBgDescriptor.cacheKey);
+          decodedBgImage = {
+            width: decodedBgDescriptor.width,
+            height: decodedBgDescriptor.height,
+            data: rawBgData || null,
+          };
+        }
+
+        // 1b. Draw projected raster background map image if loaded
+        if (decodedBgImage) {
+          const isInteracting = isDragging.current || isDraggingGlobe.current || isWheelingRef.current || isPinchingRef.current;
+          const currentZoom = interactiveViewportRef.current.zoom;
+          const totalZoom = config.zoom * currentZoom;
+
+          const webgpuEngine = null; // Bypassed: 2D Canvas context cannot draw WebGPU canvas context via drawImage
+          let webgpuRendered = false;
+
+          // Attempt WebGPU hardware acceleration rendering pass first
+          if (webgpuEngine && decodedBgImage && decodedBgImage.data) {
+            let projType = -1;
+            if (config.projection === 'equirectangular') projType = 0;
+            else if (config.projection === 'mercator') projType = 1;
+            else if (config.projection === 'orthographic') projType = 2;
+            else if (config.projection === 'azimuthalEqualArea') projType = 3;
+            else if (config.projection === 'gnomonic') projType = 4;
+            else if (config.projection === 'mollweide') projType = 5;
+            else if (config.projection === 'miller') projType = 6;
+            else if (config.projection === 'winkel1' || config.projection === 'winkel2' || config.projection === 'winkel3') projType = 7;
+            else if (config.projection === 'equalEarth') projType = 8;
+            else if (config.projection === 'robinson') projType = 9;
+            else if (config.projection === 'sinusoidal') projType = 10;
+            else if (config.projection === 'eckert1') projType = 11;
+            else if (config.projection === 'eckert4') projType = 12;
+            else if (config.projection === 'times') projType = 13;
+            else if (config.projection === 'aitoff') projType = 14;
+            else if (config.projection === 'eckert2') projType = 15;
+            else if (config.projection === 'eckert3') projType = 16;
+            else if (config.projection === 'eckert5') projType = 17;
+            else if (config.projection === 'eckert6') projType = 18;
+            else if (config.projection === 'gallPeters') projType = 19;
+            else if (config.projection === 'collignon') projType = 20;
+            else if (config.projection === 'gallStereographic') projType = 21;
+            else if (config.projection === 'lambert') projType = 22;
+            else if (config.projection === 'centralCylindrical') projType = 23;
+

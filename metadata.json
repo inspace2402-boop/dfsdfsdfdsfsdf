@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Remix Remix Remix Remix Remix Remix Remix Remix Remix Remix Remix Remix Remix MapPainter Demo",
+  "description": "An optimized and highly interactive GeoJSON map viewer with pan, zoom, selection highlights, custom file upload, and statistical choropleth mode.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

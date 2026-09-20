@@ -1,0 +1,201 @@
+          } catch (e) {}
+        }
+
+        // Resolve the raw background pixel data using the lightweight descriptor
+        let decodedBgImage: { width: number; height: number; data: Uint8ClampedArray | null } | null = null;
+        if (decodedBgDescriptor && !isNoGeoref) {
+          const rawBgData = globalDecodedBgRegistry.get(decodedBgDescriptor.cacheKey);
+          decodedBgImage = {
+            width: decodedBgDescriptor.width,
+            height: decodedBgDescriptor.height,
+            data: rawBgData || null,
+          };
+        }
+
+        // 1b. Draw projected raster background map image if loaded
+        if (decodedBgImage) {
+          const isInteracting = isDragging.current || isDraggingGlobe.current || isWheelingRef.current || isPinchingRef.current;
+          const currentZoom = interactiveViewportRef.current.zoom;
+          const totalZoom = config.zoom * currentZoom;
+
+          const webgpuEngine = null; // Bypassed: 2D Canvas context cannot draw WebGPU canvas context via drawImage
+          let webgpuRendered = false;
+
+          // Attempt WebGPU hardware acceleration rendering pass first
+          if (webgpuEngine && decodedBgImage && decodedBgImage.data) {
+            let projType = -1;
+            if (config.projection === 'equirectangular') projType = 0;
+            else if (config.projection === 'mercator') projType = 1;
+            else if (config.projection === 'orthographic') projType = 2;
+            else if (config.projection === 'azimuthalEqualArea') projType = 3;
+            else if (config.projection === 'gnomonic') projType = 4;
+            else if (config.projection === 'mollweide') projType = 5;
+            else if (config.projection === 'miller') projType = 6;
+            else if (config.projection === 'winkel1' || config.projection === 'winkel2' || config.projection === 'winkel3') projType = 7;
+            else if (config.projection === 'equalEarth') projType = 8;
+            else if (config.projection === 'robinson') projType = 9;
+            else if (config.projection === 'sinusoidal') projType = 10;
+            else if (config.projection === 'eckert1') projType = 11;
+            else if (config.projection === 'eckert4') projType = 12;
+            else if (config.projection === 'times') projType = 13;
+            else if (config.projection === 'aitoff') projType = 14;
+            else if (config.projection === 'eckert2') projType = 15;
+            else if (config.projection === 'eckert3') projType = 16;
+            else if (config.projection === 'eckert5') projType = 17;
+            else if (config.projection === 'eckert6') projType = 18;
+            else if (config.projection === 'gallPeters') projType = 19;
+            else if (config.projection === 'collignon') projType = 20;
+            else if (config.projection === 'gallStereographic') projType = 21;
+            else if (config.projection === 'lambert') projType = 22;
+            else if (config.projection === 'centralCylindrical') projType = 23;
+
+            if (projType !== -1) {
+              const targetCanvas = webgpuCanvasRef.current || bgCanvasRef.current || document.createElement('canvas');
+              const baseW = dimensions.width > 0 ? dimensions.width : 600;
+              const baseH = dimensions.height > 0 ? dimensions.height : 400;
+              const bgW = Math.max(1, Math.round(baseW * dpr));
+              const bgH = Math.max(1, Math.round(baseH * dpr));
+
+              webgpuRendered = webgpuEngine.renderToCanvas(targetCanvas, decodedBgImage, {
+                bgW,
+                bgH,
+                dimensionsWidth: baseW,
+                dimensionsHeight: baseH,
+                srcW: decodedBgImage.width,
+                srcH: decodedBgImage.height,
+                projectionType: projType,
+                centerLon: localRotationRef.current.lon,
+                centerLat: localRotationRef.current.lat,
+                zoom: config.zoom,
+                globeRadius,
+                globeCenterX,
+                globeCenterY,
+                opacity: config.bgImageOpacity ?? 1.0,
+                panX: currentPan.x,
+                panY: currentPan.y,
+                viewportZoom: currentZoom,
+              });
+
+              if (webgpuRendered) {
+                lastProjectedStateRef.current = {
+                  projection: config.projection,
+                  zoom: config.zoom,
+                  currentZoom,
+                  currentPanX: currentPan.x,
+                  currentPanY: currentPan.y,
+                  rotationLon: localRotationRef.current.lon,
+                  rotationLat: localRotationRef.current.lat,
+                  width: dimensions.width,
+                  height: dimensions.height,
+                  decodedBgImage: decodedBgDescriptor,
+                  bgProgress: bgProgress ?? 0,
+                  opacity: config.bgImageOpacity ?? 1.0,
+                  isInteracting: false,
+                };
+              }
+            }
+          }
+
+          // Fallback to AssemblyScript WebAssembly CPU Engine if WebGPU is unsupported or context lost
+          if (!webgpuRendered) {
+            const baseW = dimensions.width > 0 ? dimensions.width : 600;
+            const baseH = dimensions.height > 0 ? dimensions.height : 400;
+            const currentViewportZoom = interactiveViewportRef.current.zoom || 1;
+            const currentPan = interactiveViewportRef.current.pan || { x: 0, y: 0 };
+
+            const qualityFactor = Math.min(2.5, Math.max(dpr * 1.25, 1.5) * Math.min(1.5, Math.sqrt(currentViewportZoom)));
+            const bgW = Math.min(3200, Math.max(1, Math.round(baseW * qualityFactor)));
+            const bgH = Math.min(2000, Math.max(1, Math.round(baseH * qualityFactor)));
+
+            const lastState = lastProjectedStateRef.current;
+            const zoomRatio = lastState ? Math.max(currentViewportZoom / (lastState.currentZoom || 1), (lastState.currentZoom || 1) / currentViewportZoom) : 1;
+            const panDist = lastState ? Math.hypot(currentPan.x - (lastState.currentPanX ?? currentPan.x), currentPan.y - (lastState.currentPanY ?? currentPan.y)) : 0;
+
+            const isInteracting = isDragging.current || isWheelingRef.current || isPinchingRef.current || isSliderPanningRef.current;
+
+            const highResNeeded = (!lastState ||
+              lastState.projection !== config.projection ||
+              lastState.zoom !== config.zoom ||
+              zoomRatio > 1.2 ||
+              panDist > 50 ||
+              lastState.rotationLon !== localRotationRef.current.lon ||
+              lastState.rotationLat !== localRotationRef.current.lat ||
+              lastState.aspect !== (config.aspect || 0) ||
+              lastState.width !== dimensions.width ||
+              lastState.height !== dimensions.height ||
+              lastState.decodedBgImage !== decodedBgDescriptor ||
+              lastState.bgProgress !== bgProgress ||
+              lastState.opacity !== (config.bgImageOpacity ?? 1.0)) && (!isInteracting || !lastState);
+
+            if (highResNeeded) {
+              let projType = -1;
+              if (config.projection === 'equirectangular') projType = 0;
+              else if (config.projection === 'mercator') projType = 1;
+              else if (config.projection === 'orthographic') projType = 2;
+              else if (config.projection === 'azimuthalEqualArea') projType = 3;
+              else if (config.projection === 'gnomonic') projType = 4;
+              else if (config.projection === 'mollweide') projType = 5;
+              else if (config.projection === 'miller') projType = 6;
+              else if (config.projection === 'winkel1' || config.projection === 'winkel2' || config.projection === 'winkel3') projType = 7;
+              else if (config.projection === 'equalEarth') projType = 8;
+              else if (config.projection === 'robinson') projType = 9;
+              else if (config.projection === 'sinusoidal') projType = 10;
+              else if (config.projection === 'eckert1') projType = 11;
+              else if (config.projection === 'eckert4') projType = 12;
+              else if (config.projection === 'times') projType = 13;
+              else if (config.projection === 'aitoff') projType = 14;
+              else if (config.projection === 'eckert2') projType = 15;
+              else if (config.projection === 'eckert3') projType = 16;
+              else if (config.projection === 'eckert5') projType = 17;
+              else if (config.projection === 'eckert6') projType = 18;
+              else if (config.projection === 'gallPeters') projType = 19;
+              else if (config.projection === 'collignon') projType = 20;
+              else if (config.projection === 'gallStereographic') projType = 21;
+              else if (config.projection === 'lambert') projType = 22;
+              else if (config.projection === 'centralCylindrical') projType = 23;
+
+              if (projType !== -1 && wasmEngine) {
+                if (!bgCanvasRef.current) {
+                  bgCanvasRef.current = document.createElement('canvas');
+                }
+                const bgCanvas = bgCanvasRef.current;
+                
+                const isProjectionChange = lastState && lastState.projection !== config.projection;
+
+                if (bgCanvas.width !== bgW || bgCanvas.height !== bgH) {
+                  bgCanvas.width = bgW;
+                  bgCanvas.height = bgH;
+                }
+
+                const bgCtx = bgCanvas.getContext('2d');
+                if (bgCtx) {
+                  if (isProjectionChange) {
+                    bgCtx.clearRect(0, 0, bgW, bgH);
+                  }
+
+                  // Render 100% of rows synchronously in WASM for instant, complete frame
+                  try {
+                    const wasmPixels = executeWasmRemap(
+                      wasmEngine,
+                      decodedBgImage.data,
+                      decodedBgImage.width,
+                      decodedBgImage.height,
+                      bgW,
+                      bgH,
+                      baseW,
+                      baseH,
+                      projType,
+                      localRotationRef.current.lon,
+                      localRotationRef.current.lat,
+                      config.aspect || 0,
+                      config.zoom,
+                      globeRadius,
+                      globeCenterX,
+                      globeCenterY,
+                      config.bgImageOpacity ?? 1.0,
+                      currentPan.x,
+                      currentPan.y,
+                      currentViewportZoom,
+                      0,
+                      bgH
+                    );

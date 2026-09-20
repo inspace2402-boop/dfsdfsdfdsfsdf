@@ -1,0 +1,11 @@
+let code = "ABC\nTARGET\n  }, [\nREST";
+let target2 = "TARGET";
+let replace2 = "REPLACE\n  }, []);";
+let idx2 = code.indexOf(target2);
+let newCode = code.substring(0, idx2) + replace2 + code.substring(idx2 + target2.length);
+console.log("AFTER REPLACE:\n", newCode);
+let depStart = newCode.indexOf("  }, [", idx2);
+console.log("depStart:", depStart);
+let depEnd = newCode.indexOf("REST", depStart);
+newCode = newCode.substring(0, depStart) + newCode.substring(depEnd);
+console.log("FINAL:\n", newCode);

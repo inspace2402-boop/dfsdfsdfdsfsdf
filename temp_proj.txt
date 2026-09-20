@@ -1,0 +1,165 @@
+  const projection = React.useMemo(() => {
+    if (isNoGeoref) {
+      const proj = d3.geoIdentity() as any;
+      proj.reflectY(true);
+      
+      if (features && features.length > 0) {
+        proj.fitSize([dimensions.width, dimensions.height], {
+          type: 'FeatureCollection',
+          features: features
+        });
+        
+        const baseScale = proj.scale() || 1;
+        const baseTranslate = proj.translate() || [dimensions.width / 2, dimensions.height / 2];
+        
+        proj.scale(baseScale * config.zoom);
+        
+        const cx = dimensions.width / 2;
+        const cy = dimensions.height / 2;
+        proj.translate([
+          cx + (baseTranslate[0] - cx) * config.zoom,
+          cy + (baseTranslate[1] - cy) * config.zoom
+        ]);
+      }
+      return proj as unknown as d3.GeoProjection;
+    }
+
+    let proj: d3.GeoProjection;
+
+    switch (config.projection as any) {
+      case 'orthographic':
+        proj = d3.geoOrthographic();
+        break;
+      case 'mercator':
+        proj = d3.geoMercator();
+        break;
+      case 'equirectangular':
+        proj = d3.geoEquirectangular();
+        break;
+      case 'azimuthalEqualArea':
+        proj = d3.geoAzimuthalEqualArea();
+        break;
+      case 'gnomonic':
+        proj = d3.geoGnomonic().clipAngle(85);
+        break;
+      case 'winkel1':
+        proj = geoWinkel1();
+        break;
+      case 'winkel2':
+        proj = geoWinkel2();
+        break;
+      case 'winkel3':
+        proj = geoWinkel3();
+        break;
+      case 'mollweide':
+        proj = geoMollweide();
+        break;
+      case 'equalEarth':
+        proj = d3.geoEqualEarth();
+        break;
+      case 'robinson':
+        proj = geoRobinson();
+        break;
+      case 'sinusoidal':
+        proj = geoSinusoidal();
+        break;
+      case 'eckert1':
+        proj = geoEckert1();
+        break;
+      case 'eckert2':
+        proj = geoEckert2();
+        break;
+      case 'eckert3':
+        proj = geoEckert3();
+        break;
+      case 'eckert4':
+        proj = geoEckert4();
+        break;
+      case 'eckert5':
+        proj = geoEckert5();
+        break;
+      case 'eckert6':
+        proj = geoEckert6();
+        break;
+      case 'aitoff':
+        proj = geoAitoff();
+        break;
+      case 'times':
+        proj = geoTimes();
+        break;
+      case 'vandergrinten4':
+        proj = geoVanDerGrinten4();
+        break;
+      case 'miller':
+        proj = geoMiller();
+        break;
+      case 'gallPeters':
+        proj = geoGallPeters();
+        break;
+      case 'collignon':
+        proj = geoCollignonCustom();
+        break;
+      case 'gallStereographic':
+        proj = geoGallStereographicCustom();
+        break;
+      case 'lambert':
+        proj = geoLambertCylindrical();
+        break;
+      case 'centralCylindrical':
+        proj = geoCentralCylindrical();
+        break;
+      case 'airocean':
+        proj = geoAirocean();
+        break;
+      default:
+        proj = d3.geoEquirectangular();
+    }
+
+    if (config.projection as any === 'airocean') {
+      const defaultScale = Math.min(dimensions.width, dimensions.height) / (2 * Math.PI);
+      try {
+        proj.scale(defaultScale * config.zoom);
+      } catch (e) {}
+      try {
+        proj.translate([dimensions.width / 2, dimensions.height / 2]);
+      } catch (e) {}
+      return proj;
+    }
+
+    const defaultScale = config.projection === 'orthographic' 
+      ? Math.min(dimensions.width, dimensions.height) * 0.45
+      : Math.min(dimensions.width, dimensions.height) / (2 * Math.PI);
+
+    try {
+      proj.scale(defaultScale * config.zoom);
+    } catch (e) {}
+
+    try {
+      proj.translate([dimensions.width / 2, dimensions.height / 2]);
+    } catch (e) {}
+
+    try {
+      proj.rotate([-config.centerLon, -config.centerLat, config.aspect || 0]);
+    } catch (e) {}
+
+    if (config.projection === 'orthographic') {
+      try {
+        proj.clipAngle(90);
+      } catch (e) {}
+    } else if (config.projection === 'gnomonic') {
+      try {
+        proj.clipAngle(85);
+      } catch (e) {}
+    } else if (config.projection === 'azimuthalEqualArea') {
+      try {
+        proj.clipAngle(179.9);
+      } catch (e) {}
+    } else {
+      try {
+        proj.clipAngle(null);
+        proj.preclip(d3.geoClipAntimeridian);
+      } catch (e) {}
+    }
+
+    return proj;
+  }, [config.projection, config.zoom, config.centerLon, config.centerLat, config.aspect, dimensions, features, isNoGeoref]);
