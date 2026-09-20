@@ -1,0 +1,9 @@
+{
+  "short_name": "MapPainter",
+  "name": "MapPainter - Interactive Map Maker & Alternate History Tool",
+  "icons": [],
+  "start_url": "/",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "display": "standalone"
+}
